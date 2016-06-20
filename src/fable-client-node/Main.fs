@@ -13,6 +13,48 @@ open System.Runtime.Loader
 #else
 #endif
 
+let fakeProjectOptions projectFileName =
+    let (++) a b = System.IO.Path.Combine(a,b)
+    let sysDir =
+        // "/Library/Frameworks/Mono.framework/Versions/4.4.0/lib/mono/4.5"
+        "/usr/local/share/dotnet/shared/Microsoft.NETCore.App/1.0.0-rc2-3002702/"
+    let fsharpCoreDir =
+        "/Users/alfonsogarciacaronunez/.nuget/packages/FSharp.Core/4.0.0.1/lib/portable-net45+netcore45"
+    let sysLib nm =
+         sysDir ++ nm + ".dll"
+    let allFlags = 
+        [| yield "--simpleresolution"; 
+           yield "--noframework"; 
+        //    yield "--debug:full"; 
+        //    yield "--define:DEBUG"; 
+        //    yield "--doc:test.xml"; 
+           yield "--optimize-"; 
+           yield "--warn:3"; 
+           yield "--fullpaths"; 
+           yield "--flaterrors"; 
+           yield "--target:library"; 
+           // TODO: Add Fable.Core
+           let references = [
+                // sysLib "mscorlib" 
+                // sysLib "System"
+                // sysLib "System.Core"
+                sysLib "System.Runtime"
+                sysLib "System.Runtime.Numerics"
+                fsharpCoreDir ++ "FSharp.Core.dll"
+                // currentDir "Fable.Core"
+            ]
+           for r in references do 
+                 yield "-r:" + r |]
+ 
+    { ProjectFileName = projectFileName
+      ProjectFileNames = [| projectFileName |]
+      OtherOptions = allFlags 
+      ReferencedProjects = [| |]
+      IsIncompleteTypeCheckEnvironment = false
+      UseScriptResolutionRules = true 
+      LoadTime = System.DateTime.Now
+      UnresolvedReferences = None }
+
 let readOptions argv =
     let def opts key defArg f =
         defaultArg (Map.tryFind key opts |> Option.map f) defArg
@@ -76,6 +118,11 @@ let getProjectOptions (com: ICompiler) (checker: FSharpChecker)
         if isNull com.Options.code && not(File.Exists projFile) then
             failwithf "Cannot find project file %s" projFile
         try
+            #if NETSTANDARD1_5
+            if com.Options.code <> null then
+                File.WriteAllText(projFile, com.Options.code)
+            fakeProjectOptions projFile
+            #else
             match (Path.GetExtension projFile).ToLower() with
             | ".fsx" ->
                 let projCode =
@@ -91,16 +138,13 @@ let getProjectOptions (com: ICompiler) (checker: FSharpChecker)
                 checker.GetProjectOptionsFromScript(projFile, projCode)
                 |> Async.RunSynchronously
             | _ ->
-                #if NETSTANDARD1_5
-                failwith "Reading .fsproj not supported yet in netcore"
-                #else
                 let props = com.Options.msbuild |> List.choose (fun x ->
                     match x.Split('=') with
                     | [|key;value|] -> Some(key,value)
                     | _ -> None)
                 ProjectCracker.GetProjectOptionsFromProjectFile(projFile, props)
-                #endif
             |> addSymbols
+            #endif
         with
         | ex -> failwithf "Cannot read project options: %s" ex.Message
 
