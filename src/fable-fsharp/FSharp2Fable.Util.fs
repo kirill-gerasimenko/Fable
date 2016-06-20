@@ -630,6 +630,7 @@ module Util =
                 let args = match callee with None -> args | Some c -> c::args
                 Fable.Apply(Fable.Emit(macro) |> Fable.Value, args, Fable.ApplyMeth, typ, r)
                 |> Some
+            #if !NETSTANDARD1_5
             | :? FSharpType as typ when typ.HasTypeDefinition ->
                 try
                     let assembly = System.Reflection.Assembly.Load(typ.TypeDefinition.Assembly.QualifiedName)
@@ -639,7 +640,8 @@ module Util =
                     mi.Invoke(o, [|args|]) |> unbox |> Some
                 with
                 | _ -> failwithf "Cannot build instace of type %s or it doesn't contain an appropriate Emit method %O"
-                        typ.TypeDefinition.DisplayName r 
+                        typ.TypeDefinition.DisplayName r
+            #endif
             | _ -> failwithf "EmitAttribute must receive a string or Type argument %O" r
         | _ -> None
         

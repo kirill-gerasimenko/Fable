@@ -223,11 +223,16 @@ module Naming =
 module Json =
     open FSharp.Reflection
     open Newtonsoft.Json
+    open System.Reflection
     
     let isErasedUnion (t: System.Type) =
         t.Name = "FSharpOption`1" ||
         FSharpType.IsUnion t &&
+            #if NETSTANDARD1_5
+            t.GetTypeInfo().GetCustomAttributes(true)
+            #else
             t.GetCustomAttributes true
+            #endif
             |> Seq.exists (fun a -> (a.GetType ()).Name = "EraseAttribute")
             
     let getErasedUnionValue (v: obj) =

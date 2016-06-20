@@ -1,0 +1,50 @@
+{
+  "version": "1.0.0-*",
+  "buildOptions": {
+    "emitEntryPoint": true,
+    "compilerName": "fsc",
+    "compile": {
+      "includeFiles": [
+            "../fable-ast/AST.Common.fs",
+            "../fable-ast/AST.Fable.fs",
+            "../fable-fsharp/Util/Util.fs",
+            "../fable-fsharp/AST/AST.Fable.Util.fs",
+            "../fable-fsharp/AST/AST.Babel.fs",
+            "../fable-fsharp/Replacements/CoreLibMethods.fs",
+            "../fable-fsharp/Replacements/Replacements.fs",
+            "../fable-fsharp/FSharp2Fable.Util.fs",
+            "../fable-fsharp/FSharp2Fable.fs",
+            "../fable-fsharp/Fable2Babel.fs",
+            "Main.fs"
+      ]
+    }
+  },
+  "dependencies": {
+    "Microsoft.FSharp.Core.netcore": "1.0.0-alpha-160316",
+    "FSharp.Compiler.Service.netcore": "1.0.0-alpha-00001",
+    // "FSharp.Compiler.Service.ProjectCracker.netcore": "1.0.0-alpha-00001",
+    "Newtonsoft.Json": "9.0.1-beta1",
+    "Microsoft.NETCore.App": {
+      "type": "platform",
+      "version": "1.0.0-rc2-3002702"
+    }
+  },
+  "tools": {
+    "dotnet-compile-fsc": {
+      "version": "1.0.0-*",
+      "imports": [
+        "dnxcore50",
+        "portable-net45+win81",
+        "netstandard1.3"
+      ]
+    }
+  },
+  "frameworks": {
+    "netstandard1.5": {
+      "imports": [
+        "portable-net45+win8",
+        "dnxcore50"
+      ]
+    }
+  }
+}

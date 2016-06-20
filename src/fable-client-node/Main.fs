@@ -8,6 +8,10 @@ open Microsoft.FSharp.Compiler.Ast
 open Microsoft.FSharp.Compiler.SourceCodeServices
 open Newtonsoft.Json
 open Fable.AST
+#if NETSTANDARD1_5
+open System.Runtime.Loader
+#else
+#endif
 
 let readOptions argv =
     let def opts key defArg f =
@@ -42,7 +46,11 @@ let loadPlugins (opts: CompilerOptions): IPlugin list =
     opts.plugins
     |> Seq.collect (fun path ->
         try
+            #if NETSTANDARD1_5
+            Assembly.Load(AssemblyLoadContext.GetAssemblyName(path)).GetTypes()
+            #else
             (Path.GetFullPath path |> Assembly.LoadFile).GetTypes()
+            #endif
             |> Seq.filter typeof<IPlugin>.IsAssignableFrom
             |> Seq.map Activator.CreateInstance
         with
@@ -83,11 +91,15 @@ let getProjectOptions (com: ICompiler) (checker: FSharpChecker)
                 checker.GetProjectOptionsFromScript(projFile, projCode)
                 |> Async.RunSynchronously
             | _ ->
+                #if NETSTANDARD1_5
+                failwith "Reading .fsproj not supported yet in netcore"
+                #else
                 let props = com.Options.msbuild |> List.choose (fun x ->
                     match x.Split('=') with
                     | [|key;value|] -> Some(key,value)
                     | _ -> None)
                 ProjectCracker.GetProjectOptionsFromProjectFile(projFile, props)
+                #endif
             |> addSymbols
         with
         | ex -> failwithf "Cannot read project options: %s" ex.Message
@@ -154,7 +166,7 @@ let compile (com: ICompiler) checker (comInfo: FSharp2Fable.Compiler.Info option
         Console.Out.WriteLine()
         Some { comInfo with dependencies = deps }
     with ex ->
-        printMessage Error ex.Message
+        printMessage Error (ex.Message + "\n" + ex.StackTrace)
         comInfo
 
 let rec awaitInput (com: ICompiler) checker (comInfo: FSharp2Fable.Compiler.Info option) =

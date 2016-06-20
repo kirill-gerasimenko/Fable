@@ -1,4 +1,5 @@
 # Personal
+project.lock.json
 .vscode/
 import/core/FSharp.Core.dll
 import/core/Fable.Import.dll.*

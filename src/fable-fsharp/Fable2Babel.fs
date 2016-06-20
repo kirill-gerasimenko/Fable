@@ -420,6 +420,9 @@ module Util =
             
         // TODO: Experimental support for Quotations
         | Fable.Quote (TransformExpr com ctx expr) as fExpr ->
+            #if NETSTANDARD1_5
+            failwith "Quotations are not supported yet in netcore"
+            #else
             let rec toJson (expr: obj): Babel.Expression =
                 match expr with 
                 | :? Babel.Node ->
@@ -447,6 +450,7 @@ module Util =
                     upcast Babel.ArrayExpression(xs)
                 | _ -> failwithf "Unexpected expression inside quote %O" fExpr.Range
             toJson expr
+            #endif
         
     let transformFunction com ctx args body =
         let args: Babel.Pattern list =
