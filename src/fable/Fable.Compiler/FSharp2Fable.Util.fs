@@ -305,6 +305,22 @@ module Patterns =
             else None
         | _ -> None
 
+    let (|FlattenedLambda|_|) fsExpr =
+        let rec destruct args = function
+            | Let ((arg, TupleGet _), body) -> destruct (arg::args) body
+            | e -> args, e
+        let rec flattenLambda args = function
+            | Lambda(arg, body) ->
+                let args, body =
+                    if arg.FullType.IsTupleType && arg.IsCompilerGenerated && arg.CompiledName = "tupledArg"
+                    then let args', body = destruct [] body in (List.rev args')::args, body
+                    else ([arg]::args), body
+                flattenLambda args body
+            | e -> args, e
+        match flattenLambda [] fsExpr with
+        | [], _ -> None
+        | args, body -> Some(List.rev args, body)
+
     /// This matches the boilerplate F# compiler generates for methods
     /// like Dictionary.TryGetValue (see #154)
     let (|TryGetValue|_|) = function
@@ -504,9 +520,9 @@ module Types =
         elif tdef.IsDelegate
         then
             match Seq.length genArgs with
-            | 0 -> [Fable.Unit], Fable.Unit
-            | 1 -> [Seq.head genArgs |> makeType com ctx], Fable.Unit
-            | c -> Seq.take (c-1) genArgs |> Seq.map (makeType com ctx) |> Seq.toList,
+            | 0 -> [[Fable.Unit]], Fable.Unit
+            | 1 -> [[Seq.head genArgs |> makeType com ctx]], Fable.Unit
+            | c -> Seq.take (c-1) genArgs |> Seq.map (makeType com ctx >> List.singleton) |> Seq.toList,
                     Seq.last genArgs |> makeType com ctx
             |> Fable.Function
         // Object
@@ -548,7 +564,7 @@ module Types =
         elif t.IsFunctionType
         then
             let gs = getFnGenArgs [] t
-            (List.rev gs.Tail |> List.map (makeType com ctx), makeType com ctx gs.Head)
+            (List.rev gs.Tail |> List.map (makeType com ctx >> List.singleton), makeType com ctx gs.Head)
             |> Fable.Function
         elif t.HasTypeDefinition
         then makeTypeFromDef com ctx t.TypeDefinition t.GenericArguments
@@ -600,10 +616,13 @@ module Util =
     open Types
     open Identifiers
 
-    let makeLambdaArgs com ctx (vars: FSharpMemberOrFunctionOrValue list) =
-        List.foldBack (fun var (ctx, accArgs) ->
-            let newContext, arg = bindIdentFrom com ctx var
-            newContext, arg::accArgs) vars (ctx, [])
+    let makeLambdaArgs com ctx (paramGroups: FSharpMemberOrFunctionOrValue list list) =
+        (paramGroups, (ctx, [])) ||> List.foldBack (fun paramGroup (ctx, argGroups) ->
+            let ctx, argGroup =
+                (paramGroup, (ctx, [])) ||> List.foldBack (fun param (ctx, argGroup) ->
+                    let ctx, arg = bindIdentFrom com ctx param
+                    ctx, arg::argGroup)
+            ctx, argGroup::argGroups)
 
     let getMethodArgs com ctx isInstance (args: FSharpMemberOrFunctionOrValue list list) =
         let ctx, args =
@@ -615,11 +634,9 @@ module Util =
         | [] -> ctx, []
         | [[singleArg]] when isUnit singleArg.FullType -> ctx, []
         | args ->
-            List.foldBack (fun tupledArg (ctx, accArgs) ->
-                // The F# compiler "untuples" the args in methods
-                let ctx, untupledArg = makeLambdaArgs com ctx tupledArg
-                ctx, untupledArg@accArgs
-            ) args (ctx, [])
+            let ctx, args = makeLambdaArgs com ctx args
+            // The F# compiler "untuples" the args in methods
+            ctx, List.concat args
 
     let makeTryCatch com ctx (fsExpr: FSharpExpr) (Transform com ctx body) catchClause finalBody =
         let catchClause =
@@ -645,8 +662,7 @@ module Util =
 //        | _ -> false
 
     let buildApplyInfo com ctx r typ ownerName methName methKind
-                       (atts, typArgs, methTypArgs, lambdaArgArity) (callee, args)
-                       : Fable.ApplyInfo =
+                       (atts, typArgs, methTypArgs) (callee, args): Fable.ApplyInfo =
         {
             ownerFullName = ownerName
             methodName = methName
@@ -658,22 +674,15 @@ module Util =
             decorators = atts |> Seq.choose (makeDecorator com) |> Seq.toList
             calleeTypeArgs = typArgs |> List.map (makeType com ctx) 
             methodTypeArgs = methTypArgs |> List.map (makeType com ctx)
-            lambdaArgArity = lambdaArgArity
         }
 
     let buildApplyInfoFrom com ctx r typ (typArgs, methTypArgs)
                        (callee, args) (meth: FSharpMemberOrFunctionOrValue)
                        : Fable.ApplyInfo =
-        let lambdaArgArity =
-            if meth.CurriedParameterGroups.Count > 0
-                && meth.CurriedParameterGroups.[0].Count > 0
-            then countFuncArgs meth.CurriedParameterGroups.[0].[0].Type
-            else 0
         let methName, methKind = sanitizeMethodName meth
         buildApplyInfo com ctx r typ
             (sanitizeEntityFullName meth.EnclosingEntity) methName methKind
-            (meth.Attributes, typArgs, methTypArgs, lambdaArgArity)
-            (callee, args)
+            (meth.Attributes, typArgs, methTypArgs) (callee, args)
 
     let replace (com: IFableCompiler) r applyInfo =
         let pluginReplace i =
@@ -843,7 +852,7 @@ module Util =
                             let ent = makeEntity com meth.EnclosingEntity
                             ent.TryGetMember(methName, methKind, typArgs, methTypArgs, argTypes, isStatic)
                             |> function Some m -> m.OverloadName | None -> methName
-                        let calleeType = Fable.Function(argTypes, typ)
+                        let calleeType = Fable.Function(List.map List.singleton argTypes, typ)
                         makeGet r calleeType callee (makeConst methName)
                     |> fun m -> Fable.Apply (m, args, Fable.ApplyMeth, typ, r)
 
@@ -857,7 +866,7 @@ module Util =
         let lambdaBody =
             let args = lambdaArgs |> List.map (Fable.IdentValue >> Fable.Value)
             makeCallFrom com ctx r typ meth ([],[]) None args
-        Fable.Lambda (lambdaArgs, lambdaBody) |> Fable.Value
+        Fable.Lambda(List.map List.singleton lambdaArgs, lambdaBody) |> Fable.Value
 
     let makeValueFrom com ctx r typ (v: FSharpMemberOrFunctionOrValue) =
         if not v.IsModuleValueOrMember
